@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "OmniWallet (MVP)",
+  "version": "0.1.0",
+  "description": "Minimal EVM wallet extension (Avalanche + Polygon).",
+  "action": {
+    "default_title": "OmniWallet",
+    "default_popup": "src/popup/index.html"
+  },
+  "background": {
+    "service_worker": "src/background.ts",
+    "type": "module"
+  },
+  "permissions": ["storage", "notifications", "windows", "tabs"],
+  "host_permissions": ["<all_urls>"],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["src/contentScript.ts"],
+      "run_at": "document_start"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["src/inpage.ts"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

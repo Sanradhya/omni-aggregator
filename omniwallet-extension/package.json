@@ -1,0 +1,27 @@
+{
+  "name": "omniwallet-extension",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "A minimal EVM wallet Chrome extension (MV3) supporting Avalanche and Polygon.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "lint": "echo \"(optional) add eslint\"",
+    "format": "echo \"(optional) add prettier\""
+  },
+  "dependencies": {
+    "ethers": "^6.13.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@crxjs/vite-plugin": "^2.0.0",
+    "@types/chrome": "^0.0.280",
+    "@types/react": "^18.3.5",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "typescript": "^5.5.4",
+    "vite": "^5.4.2"
+  }
+}
