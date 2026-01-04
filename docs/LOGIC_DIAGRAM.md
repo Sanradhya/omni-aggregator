@@ -8,29 +8,29 @@ This doc explains the end-to-end logic and provides diagrams you can paste into 
 
 ## Variables
 
-**Chains:**
-- `C` = chain where the **token transfer** happens (**asset base chain**)
-- `B` = chain the user chooses to **pay from**
+Chains:
+- `C` = chain where the token transfer happens (asset base chain)
+- `B` = chain the user chooses to pay from
 
-**Gas costs:**
-- `x`  = gas used by **Omni** to send **native gas** to the user on chain `C`
-- `x'` = gas used by the user to send the **token** on chain `C`
-- `m`  = gas used to collect **reimbursement** on chain `B`
+Gas costs:
+- `x`  = gas used by Omni to send native gas to the user on chain `C`
+- `x'` = gas used by the user to send the token on chain `C`
+- `m`  = gas used to collect reimbursement on chain `B`
 
-**Fee:**
-- `feeRate` = **Omni fee** (example: `0.05` = **5%**)
+Fee:
+- `feeRate` = Omni fee (example: `0.05` = 5%)
 
-**Conversion:**
-- `convert(amount_native_C → terms_on_B)` converts **Chain C native gas cost** into an equivalent payable amount on chain B (token/asset defined by your billing policy).
+Conversion:
+- `convert(amount_native_C → terms_on_B)` converts Chain C native gas cost into an equivalent payable amount on chain B (token/asset defined by your billing policy).
 
 ---
 
 ## Core Computation
 
-**Omni spend on Chain C:**
+Omni spend on Chain C:
 - `gasC_total = x + x'`
 
-**User charge on Chain B:**
+User charge on Chain B:
 - `baseB = convert(gasC_total, C → B)`
 - `feeB  = feeRate * baseB`
 - `chargeB = baseB + feeB + m`
@@ -46,7 +46,7 @@ flowchart TD
   B -- No --> D[User selects pay chain B]
   D --> E[Quote Engine estimates x, x', m]
   E --> F[Compute gasC_total = x + x']
-  F --> G[Convert baseB = convert(gasC_total C→B)]
+  F --> G["Convert baseB = convert(gasC_total, C to B)"]
   G --> H[chargeB = baseB + feeRate*baseB + m]
   H --> I{Risk checks pass?}
   I -- No --> J[Reject / ask user to pick another chain]
