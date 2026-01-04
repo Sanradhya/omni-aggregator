@@ -1,6 +1,14 @@
 import React, { useEffect, useMemo, useState } from "react"
 import { bg } from "./rpc"
-import { CHAINS } from "../../shared/chains"
+import {
+  CHAINS,
+  CHAIN_ORDER,
+  DEFAULT_CHAIN_ID,
+  NETWORK_MODE,
+  NON_EVM_CHAINS,
+  isSupportedChain,
+  explorerTxUrl
+} from "../../shared/chains"
 import { shortAddr } from "../../utils/format"
 
 type State = {
@@ -18,11 +26,27 @@ export default function App() {
   const [state, setState] = useState<State | null>(null)
   const [balance, setBalance] = useState<string>("—")
   const [err, setErr] = useState<string>("")
-  const chain = useMemo(() => (state ? CHAINS[state.chainId] : null), [state])
+
+  const chain = useMemo(() => {
+    if (!state) return null
+    return CHAINS[state.chainId] ?? null
+  }, [state?.chainId])
 
   async function refresh() {
     setErr("")
     const s = await bg<State>({ type: "GET_STATE" })
+
+    // If chainId in storage isn't supported anymore (e.g., switching testnet/mainnet),
+    // force it back to DEFAULT_CHAIN_ID to avoid broken RPC calls.
+    if (s.hasWallet && s.unlocked && !isSupportedChain(s.chainId)) {
+      await bg({ type: "SET_CHAIN", chainId: DEFAULT_CHAIN_ID })
+      const s2 = await bg<State>({ type: "GET_STATE" })
+      setState(s2)
+      setErr(`Unsupported network was selected. Switched to default.`)
+      setScreen("home")
+      return
+    }
+
     setState(s)
     if (!s.hasWallet) setScreen("onboard")
     else if (!s.unlocked) setScreen("unlock")
@@ -30,9 +54,13 @@ export default function App() {
   }
 
   async function refreshBalance() {
-    if (!state?.hasWallet) return
-    const res = await bg<{ balance: string }>({ type: "GET_BALANCE" })
-    setBalance(res.balance)
+    try {
+      if (!state?.hasWallet) return
+      const res = await bg<{ balance: string }>({ type: "GET_BALANCE" })
+      setBalance(res.balance)
+    } catch {
+      setBalance("—")
+    }
   }
 
   useEffect(() => {
@@ -41,6 +69,7 @@ export default function App() {
 
   useEffect(() => {
     if (screen === "home") refreshBalance().catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen, state?.chainId])
 
   if (screen === "loading") {
@@ -55,13 +84,21 @@ export default function App() {
   }
 
   if (screen === "onboard") {
+    const modeLabel = NETWORK_MODE === "testnet" ? "Testnet" : "Mainnet"
     return (
       <div className="container">
         <div className="card">
           <h1 className="h1">OmniWallet</h1>
           <p className="p">
-            Minimal EVM wallet extension (Avalanche + Polygon). For dev/MVP use. Don’t store your life savings here. 🙂
+            Minimal EVM wallet extension for dev/MVP use. Supports{" "}
+            <span className="mono">Ethereum • Base • Arbitrum • Polygon • Avalanche</span>.
           </p>
+          <div className="muted" style={{ marginTop: 6 }}>
+            Mode: <span className="mono">{modeLabel}</span>
+          </div>
+
+          <div style={{ height: 12 }} />
+
           <div className="grid">
             <button className="btn primary" onClick={() => setScreen("create")}>
               Create new wallet
@@ -70,6 +107,12 @@ export default function App() {
               Import private key
             </button>
           </div>
+
+          <div style={{ height: 10 }} />
+          <div className="muted" style={{ fontSize: 12 }}>
+            Don’t store real funds here yet. This is still a prototype.
+          </div>
+
           {err ? <div className="err">{err}</div> : null}
         </div>
       </div>
@@ -81,6 +124,10 @@ export default function App() {
   if (screen === "unlock") return <Unlock onDone={refresh} />
 
   // home
+  const selectedChainId = state?.chainId ?? DEFAULT_CHAIN_ID
+  const selectedChain = CHAINS[selectedChainId]
+  const nativeSymbol = selectedChain?.nativeSymbol ?? "NATIVE"
+
   return (
     <div className="container">
       <div className="card">
@@ -88,6 +135,9 @@ export default function App() {
           <div>
             <div className="h1">Wallet</div>
             <div className="muted mono">{shortAddr(state?.address ?? "")}</div>
+            <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+              Mode: <span className="mono">{NETWORK_MODE}</span>
+            </div>
           </div>
           <button
             className="btn small"
@@ -105,24 +155,49 @@ export default function App() {
           <div>
             <div className="muted">Network</div>
             <select
-              value={state?.chainId}
+              value={String(selectedChainId)}
               onChange={async (e) => {
-                const chainId = Number(e.target.value)
+                const v = e.target.value
+
+                // Ignore non-EVM placeholder selections
+                if (v.startsWith("non-evm:")) {
+                  // snap back to current chain
+                  e.currentTarget.value = String(selectedChainId)
+                  return
+                }
+
+                const chainId = Number(v)
+                if (!Number.isFinite(chainId) || !isSupportedChain(chainId)) return
+
                 await bg({ type: "SET_CHAIN", chainId })
                 await refresh()
               }}
             >
-              {Object.values(CHAINS).map((c) => (
-                <option key={c.chainId} value={c.chainId}>
-                  {c.name}
-                </option>
-              ))}
+              <optgroup label="EVM">
+                {CHAIN_ORDER
+                  .map((id) => CHAINS[id])
+                  .filter(Boolean)
+                  .map((c) => (
+                    <option key={c.chainId} value={String(c.chainId)}>
+                      {c.name}
+                      {c.isTestnet ? " (Testnet)" : ""}
+                    </option>
+                  ))}
+              </optgroup>
+
+              <optgroup label="Non-EVM (coming soon)">
+                {NON_EVM_CHAINS.map((c) => (
+                  <option key={c.key} value={`non-evm:${c.key}`} disabled={!c.enabled}>
+                    {c.name} (coming soon)
+                  </option>
+                ))}
+              </optgroup>
             </select>
           </div>
 
           <div className="spread">
             <div>
-              <div className="muted">Balance ({chain?.nativeSymbol})</div>
+              <div className="muted">Balance ({nativeSymbol})</div>
               <div className="mono">{balance}</div>
             </div>
             <button className="btn small" onClick={refreshBalance}>
@@ -134,7 +209,8 @@ export default function App() {
         <div className="hr" />
 
         <SendNative
-          nativeSymbol={chain?.nativeSymbol ?? "NATIVE"}
+          chainId={selectedChainId}
+          nativeSymbol={nativeSymbol}
           onSent={() => refreshBalance()}
           onError={(m) => setErr(m)}
         />
@@ -300,10 +376,12 @@ function ImportWallet({ onDone, onBack }: { onDone: () => void; onBack: () => vo
 }
 
 function SendNative({
+  chainId,
   nativeSymbol,
   onSent,
   onError
 }: {
+  chainId: number
   nativeSymbol: string
   onSent: () => void
   onError: (m: string) => void
@@ -312,6 +390,8 @@ function SendNative({
   const [amount, setAmount] = useState("")
   const [status, setStatus] = useState<"idle" | "sending" | "sent">("idle")
   const [txHash, setTxHash] = useState<string>("")
+
+  const txUrl = txHash ? explorerTxUrl(chainId, txHash) : undefined
 
   return (
     <div className="grid">
@@ -337,9 +417,17 @@ function SendNative({
       >
         {status === "sending" ? "Sending…" : "Send"}
       </button>
+
       {status === "sent" ? (
         <div className="ok">
-          Sent. Tx: <span className="mono">{txHash.slice(0, 10)}…</span>
+          Sent. Tx:{" "}
+          {txUrl ? (
+            <a className="mono" href={txUrl} target="_blank" rel="noreferrer">
+              {txHash.slice(0, 10)}…
+            </a>
+          ) : (
+            <span className="mono">{txHash.slice(0, 10)}…</span>
+          )}
         </div>
       ) : null}
     </div>
