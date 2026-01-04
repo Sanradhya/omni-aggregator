@@ -5,17 +5,17 @@
     "src": "../../../../../../@crx/manifest",
     "isEntry": true
   },
-  "_format-Bcew2BgU.js": {
-    "file": "assets/format-Bcew2BgU.js",
+  "_format-BbxJEvr0.js": {
+    "file": "assets/format-BbxJEvr0.js",
     "name": "format"
   },
   "src/background.ts": {
-    "file": "assets/background.ts-D7oPF8ZT.js",
+    "file": "assets/background.ts-CGMk8zeR.js",
     "name": "background.ts",
     "src": "src/background.ts",
     "isEntry": true,
     "imports": [
-      "_format-Bcew2BgU.js"
+      "_format-BbxJEvr0.js"
     ]
   },
   "src/contentScript.ts": {
@@ -25,12 +25,12 @@
     "isEntry": true
   },
   "src/popup/index.html": {
-    "file": "assets/index.html-DzEgm0vj.js",
+    "file": "assets/index.html-B3dBdVzw.js",
     "name": "index.html",
     "src": "src/popup/index.html",
     "isEntry": true,
     "imports": [
-      "_format-Bcew2BgU.js"
+      "_format-BbxJEvr0.js"
     ],
     "css": [
       "assets/index-D91m31iP.css"

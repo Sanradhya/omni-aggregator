@@ -5,28 +5,22 @@ export type ChainInfo = {
   rpcUrls: string[]
   blockExplorerUrl?: string
   isTestnet?: boolean
+  isCustom?: boolean
 }
 
 /**
  * NETWORK MODE
- * - Default: testnet (safer for dev)
- * - Set to "mainnet" when ready
- *
- * Works with:
- * - Vite:   VITE_NETWORK_MODE=mainnet
- * - Node:   NETWORK_MODE=mainnet
+ * Default: testnet
  */
 export type NetworkMode = "testnet" | "mainnet"
 
 function readEnv(key: string): string | undefined {
-  // Vite / modern bundlers
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const viteVal = (typeof import.meta !== "undefined" && (import.meta as any)?.env?.[key]) as
     | string
     | undefined
   if (viteVal) return viteVal
 
-  // Node fallback (some tooling still injects this)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const nodeVal = (typeof process !== "undefined" && (process as any)?.env?.[key]) as
     | string
@@ -40,23 +34,17 @@ export const NETWORK_MODE: NetworkMode =
   "testnet"
 
 /**
- * MAINNET CHAINS (EVM)
+ * Built-in chains
  */
 export const MAINNET_CHAINS: Record<number, ChainInfo> = {
-  // Ethereum Mainnet
   1: {
     chainId: 1,
     name: "Ethereum",
     nativeSymbol: "ETH",
-    rpcUrls: [
-      // Public RPCs can rate limit; swap with Alchemy/Infura/QuickNode for reliability.
-      "https://cloudflare-eth.com"
-    ],
+    rpcUrls: ["https://cloudflare-eth.com"],
     blockExplorerUrl: "https://etherscan.io",
     isTestnet: false
   },
-
-  // Base Mainnet
   8453: {
     chainId: 8453,
     name: "Base",
@@ -65,8 +53,6 @@ export const MAINNET_CHAINS: Record<number, ChainInfo> = {
     blockExplorerUrl: "https://basescan.org",
     isTestnet: false
   },
-
-  // Arbitrum One
   42161: {
     chainId: 42161,
     name: "Arbitrum One",
@@ -75,8 +61,6 @@ export const MAINNET_CHAINS: Record<number, ChainInfo> = {
     blockExplorerUrl: "https://arbiscan.io",
     isTestnet: false
   },
-
-  // Polygon
   137: {
     chainId: 137,
     name: "Polygon",
@@ -85,8 +69,6 @@ export const MAINNET_CHAINS: Record<number, ChainInfo> = {
     blockExplorerUrl: "https://polygonscan.com",
     isTestnet: false
   },
-
-  // Avalanche C-Chain
   43114: {
     chainId: 43114,
     name: "Avalanche C-Chain",
@@ -97,11 +79,7 @@ export const MAINNET_CHAINS: Record<number, ChainInfo> = {
   }
 }
 
-/**
- * TESTNET CHAINS (EVM)
- */
 export const TESTNET_CHAINS: Record<number, ChainInfo> = {
-  // Ethereum Sepolia
   11155111: {
     chainId: 11155111,
     name: "Ethereum Sepolia",
@@ -110,8 +88,6 @@ export const TESTNET_CHAINS: Record<number, ChainInfo> = {
     blockExplorerUrl: "https://sepolia.etherscan.io",
     isTestnet: true
   },
-
-  // Base Sepolia
   84532: {
     chainId: 84532,
     name: "Base Sepolia",
@@ -120,8 +96,6 @@ export const TESTNET_CHAINS: Record<number, ChainInfo> = {
     blockExplorerUrl: "https://sepolia.basescan.org",
     isTestnet: true
   },
-
-  // Arbitrum Sepolia
   421614: {
     chainId: 421614,
     name: "Arbitrum Sepolia",
@@ -130,8 +104,6 @@ export const TESTNET_CHAINS: Record<number, ChainInfo> = {
     blockExplorerUrl: "https://sepolia.arbiscan.io",
     isTestnet: true
   },
-
-  // Polygon Amoy (Mumbai is deprecated)
   80002: {
     chainId: 80002,
     name: "Polygon Amoy",
@@ -140,8 +112,6 @@ export const TESTNET_CHAINS: Record<number, ChainInfo> = {
     blockExplorerUrl: "https://amoy.polygonscan.com",
     isTestnet: true
   },
-
-  // Avalanche Fuji C-Chain
   43113: {
     chainId: 43113,
     name: "Avalanche Fuji C-Chain",
@@ -153,29 +123,19 @@ export const TESTNET_CHAINS: Record<number, ChainInfo> = {
 }
 
 /**
- * The active chains for the wallet right now.
+ * These are ONLY the built-in active chains.
+ * Custom chains are stored in chrome.storage and merged in background.ts.
  */
 export const CHAINS: Record<number, ChainInfo> =
   NETWORK_MODE === "mainnet" ? MAINNET_CHAINS : TESTNET_CHAINS
 
-/**
- * Default chain depends on mode.
- * (Pick something with good faucet support and stable RPCs.)
- */
 export const DEFAULT_CHAIN_ID =
   NETWORK_MODE === "mainnet" ? 43114 : 11155111
 
-/**
- * Deterministic dropdown order
- */
 export const CHAIN_ORDER: number[] =
   NETWORK_MODE === "mainnet"
     ? [1, 8453, 42161, 137, 43114]
     : [11155111, 84532, 421614, 80002, 43113]
-
-export function isSupportedChain(chainId: number) {
-  return Boolean(CHAINS[chainId])
-}
 
 export function toHexChainId(chainId: number) {
   if (!Number.isSafeInteger(chainId) || chainId <= 0) {
@@ -184,26 +144,49 @@ export function toHexChainId(chainId: number) {
   return "0x" + chainId.toString(16)
 }
 
-export function getChain(chainId: number): ChainInfo | undefined {
-  return CHAINS[chainId]
+/**
+ * Parse chainId entered by user:
+ * supports "8453" and "0x2105"
+ */
+export function parseChainId(input: string): number {
+  const v = input.trim()
+  if (!v) return NaN
+  if (v.startsWith("0x") || v.startsWith("0X")) {
+    const n = Number.parseInt(v.slice(2), 16)
+    return Number.isFinite(n) ? n : NaN
+  }
+  const n = Number(v)
+  return Number.isFinite(n) ? n : NaN
+}
+
+export function normalizeUrl(url: string) {
+  return url.trim().replace(/\/+$/, "")
+}
+
+export function isValidHttpUrl(url: string) {
+  try {
+    const u = new URL(url)
+    return u.protocol === "http:" || u.protocol === "https:"
+  } catch {
+    return false
+  }
 }
 
 export function explorerTxUrl(chainId: number, txHash: string) {
   const c = CHAINS[chainId]
   if (!c?.blockExplorerUrl) return undefined
-  return `${c.blockExplorerUrl}/tx/${txHash}`
+  return `${normalizeUrl(c.blockExplorerUrl)}/tx/${txHash}`
 }
 
 export function explorerAddressUrl(chainId: number, address: string) {
   const c = CHAINS[chainId]
   if (!c?.blockExplorerUrl) return undefined
-  return `${c.blockExplorerUrl}/address/${address}`
+  return `${normalizeUrl(c.blockExplorerUrl)}/address/${address}`
 }
 
 /**
- * Non-EVM placeholder list (for UI only, not connected yet)
+ * Non-EVM placeholder list (UI only, not connected yet)
  */
 export const NON_EVM_CHAINS = [
   { key: "bitcoin", name: "Bitcoin", enabled: false }
 ] as const
-

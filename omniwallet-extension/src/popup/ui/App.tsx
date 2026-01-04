@@ -1,13 +1,14 @@
 import React, { useEffect, useMemo, useState } from "react"
 import { bg } from "./rpc"
 import {
-  CHAINS,
-  CHAIN_ORDER,
   DEFAULT_CHAIN_ID,
   NETWORK_MODE,
   NON_EVM_CHAINS,
-  isSupportedChain,
-  explorerTxUrl
+  parseChainId,
+  ChainInfo,
+  NetworkMode,
+  normalizeUrl,
+  isValidHttpUrl
 } from "../../shared/chains"
 import { shortAddr } from "../../utils/format"
 
@@ -19,7 +20,7 @@ type State = {
   chainName: string
 }
 
-type Screen = "loading" | "onboard" | "unlock" | "home" | "create" | "import"
+type Screen = "loading" | "onboard" | "unlock" | "home" | "create" | "import" | "addNetwork"
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>("loading")
@@ -27,26 +28,27 @@ export default function App() {
   const [balance, setBalance] = useState<string>("—")
   const [err, setErr] = useState<string>("")
 
+  const [chains, setChains] = useState<Record<number, ChainInfo>>({})
+  const [order, setOrder] = useState<number[]>([])
+
+  const selectedChainId = state?.chainId ?? DEFAULT_CHAIN_ID
+
   const chain = useMemo(() => {
-    if (!state) return null
-    return CHAINS[state.chainId] ?? null
-  }, [state?.chainId])
+    return chains[selectedChainId] ?? null
+  }, [chains, selectedChainId])
+
+  async function refreshChains(mode: NetworkMode = NETWORK_MODE) {
+    const res = await bg<{ chains: Record<number, ChainInfo>; order: number[] }>({
+      type: "GET_CHAINS",
+      mode
+    })
+    setChains(res.chains || {})
+    setOrder(res.order || [])
+  }
 
   async function refresh() {
     setErr("")
     const s = await bg<State>({ type: "GET_STATE" })
-
-    // If chainId in storage isn't supported anymore (e.g., switching testnet/mainnet),
-    // force it back to DEFAULT_CHAIN_ID to avoid broken RPC calls.
-    if (s.hasWallet && s.unlocked && !isSupportedChain(s.chainId)) {
-      await bg({ type: "SET_CHAIN", chainId: DEFAULT_CHAIN_ID })
-      const s2 = await bg<State>({ type: "GET_STATE" })
-      setState(s2)
-      setErr(`Unsupported network was selected. Switched to default.`)
-      setScreen("home")
-      return
-    }
-
     setState(s)
     if (!s.hasWallet) setScreen("onboard")
     else if (!s.unlocked) setScreen("unlock")
@@ -64,7 +66,15 @@ export default function App() {
   }
 
   useEffect(() => {
-    refresh().catch((e) => setErr(e.message))
+    ;(async () => {
+      try {
+        await refreshChains(NETWORK_MODE)
+        await refresh()
+      } catch (e: any) {
+        setErr(e.message)
+        setScreen("loading")
+      }
+    })()
   }, [])
 
   useEffect(() => {
@@ -91,7 +101,7 @@ export default function App() {
           <h1 className="h1">OmniWallet</h1>
           <p className="p">
             Minimal EVM wallet extension for dev/MVP use. Supports{" "}
-            <span className="mono">Ethereum • Base • Arbitrum • Polygon • Avalanche</span>.
+            <span className="mono">EVM networks + custom RPC networks</span>.
           </p>
           <div className="muted" style={{ marginTop: 6 }}>
             Mode: <span className="mono">{modeLabel}</span>
@@ -123,10 +133,21 @@ export default function App() {
   if (screen === "import") return <ImportWallet onDone={refresh} onBack={() => setScreen("onboard")} />
   if (screen === "unlock") return <Unlock onDone={refresh} />
 
+  if (screen === "addNetwork") {
+    return (
+      <AddCustomNetwork
+        defaultMode={NETWORK_MODE}
+        onBack={() => setScreen("home")}
+        onSaved={async () => {
+          await refreshChains(NETWORK_MODE)
+          setScreen("home")
+        }}
+      />
+    )
+  }
+
   // home
-  const selectedChainId = state?.chainId ?? DEFAULT_CHAIN_ID
-  const selectedChain = CHAINS[selectedChainId]
-  const nativeSymbol = selectedChain?.nativeSymbol ?? "NATIVE"
+  const nativeSymbol = chain?.nativeSymbol ?? "NATIVE"
 
   return (
     <div className="container">
@@ -159,27 +180,29 @@ export default function App() {
               onChange={async (e) => {
                 const v = e.target.value
 
-                // Ignore non-EVM placeholder selections
                 if (v.startsWith("non-evm:")) {
-                  // snap back to current chain
                   e.currentTarget.value = String(selectedChainId)
                   return
                 }
 
                 const chainId = Number(v)
-                if (!Number.isFinite(chainId) || !isSupportedChain(chainId)) return
+                if (!Number.isFinite(chainId)) return
+
+                // must exist in merged list
+                if (!chains[chainId]) return
 
                 await bg({ type: "SET_CHAIN", chainId })
                 await refresh()
               }}
             >
               <optgroup label="EVM">
-                {CHAIN_ORDER
-                  .map((id) => CHAINS[id])
+                {order
+                  .map((id) => chains[id])
                   .filter(Boolean)
                   .map((c) => (
                     <option key={c.chainId} value={String(c.chainId)}>
                       {c.name}
+                      {c.isCustom ? " (Custom)" : ""}
                       {c.isTestnet ? " (Testnet)" : ""}
                     </option>
                   ))}
@@ -193,6 +216,33 @@ export default function App() {
                 ))}
               </optgroup>
             </select>
+
+            <div style={{ height: 8 }} />
+
+            <div className="grid two">
+              <button className="btn small" onClick={() => setScreen("addNetwork")}>
+                Add custom network
+              </button>
+
+              <button
+                className="btn small danger"
+                disabled={!chain?.isCustom}
+                onClick={async () => {
+                  try {
+                    setErr("")
+                    if (!chain?.isCustom) return
+                    const mode: NetworkMode = chain.isTestnet ? "testnet" : "mainnet"
+                    await bg({ type: "REMOVE_CUSTOM_CHAIN", mode, chainId: chain.chainId })
+                    await refreshChains(NETWORK_MODE)
+                    await refresh()
+                  } catch (e: any) {
+                    setErr(e.message)
+                  }
+                }}
+              >
+                Remove (custom)
+              </button>
+            </div>
           </div>
 
           <div className="spread">
@@ -209,7 +259,7 @@ export default function App() {
         <div className="hr" />
 
         <SendNative
-          chainId={selectedChainId}
+          chain={chain}
           nativeSymbol={nativeSymbol}
           onSent={() => refreshBalance()}
           onError={(m) => setErr(m)}
@@ -230,7 +280,6 @@ export default function App() {
           <button
             className="btn danger"
             onClick={async () => {
-              // Danger: wipes wallet from storage (dev convenience)
               await chrome.storage.local.clear()
               window.location.reload()
             }}
@@ -376,12 +425,12 @@ function ImportWallet({ onDone, onBack }: { onDone: () => void; onBack: () => vo
 }
 
 function SendNative({
-  chainId,
+  chain,
   nativeSymbol,
   onSent,
   onError
 }: {
-  chainId: number
+  chain: ChainInfo | null
   nativeSymbol: string
   onSent: () => void
   onError: (m: string) => void
@@ -391,7 +440,9 @@ function SendNative({
   const [status, setStatus] = useState<"idle" | "sending" | "sent">("idle")
   const [txHash, setTxHash] = useState<string>("")
 
-  const txUrl = txHash ? explorerTxUrl(chainId, txHash) : undefined
+  // explorer for custom chain (use chain object)
+  const txUrl =
+    txHash && chain?.blockExplorerUrl ? `${normalizeUrl(chain.blockExplorerUrl)}/tx/${txHash}` : undefined
 
   return (
     <div className="grid">
@@ -430,6 +481,120 @@ function SendNative({
           )}
         </div>
       ) : null}
+    </div>
+  )
+}
+
+function AddCustomNetwork({
+  defaultMode,
+  onBack,
+  onSaved
+}: {
+  defaultMode: NetworkMode
+  onBack: () => void
+  onSaved: () => void
+}) {
+  const [mode, setMode] = useState<NetworkMode>(defaultMode)
+  const [name, setName] = useState("")
+  const [rpcUrl, setRpcUrl] = useState("")
+  const [chainIdRaw, setChainIdRaw] = useState("")
+  const [nativeSymbol, setNativeSymbol] = useState("")
+  const [blockExplorerUrl, setBlockExplorerUrl] = useState("")
+  const [err, setErr] = useState("")
+  const [ok, setOk] = useState("")
+
+  return (
+    <div className="container">
+      <div className="card">
+        <div className="spread">
+          <h1 className="h1">Add custom network</h1>
+          <button className="btn small" onClick={onBack}>Back</button>
+        </div>
+
+        <div className="grid">
+          <div>
+            <div className="muted">Network type</div>
+            <select value={mode} onChange={(e) => setMode(e.target.value as NetworkMode)}>
+              <option value="testnet">Testnet</option>
+              <option value="mainnet">Mainnet</option>
+            </select>
+          </div>
+
+          <div>
+            <div className="muted">Network name</div>
+            <input className="input" placeholder="e.g. Blast" value={name} onChange={(e) => setName(e.target.value)} />
+          </div>
+
+          <div>
+            <div className="muted">Default RPC URL</div>
+            <input className="input" placeholder="https://..." value={rpcUrl} onChange={(e) => setRpcUrl(e.target.value)} />
+          </div>
+
+          <div>
+            <div className="muted">Chain ID</div>
+            <input className="input" placeholder="e.g. 81457 or 0x13E49" value={chainIdRaw} onChange={(e) => setChainIdRaw(e.target.value)} />
+          </div>
+
+          <div>
+            <div className="muted">Currency symbol</div>
+            <input className="input" placeholder="e.g. ETH" value={nativeSymbol} onChange={(e) => setNativeSymbol(e.target.value)} />
+          </div>
+
+          <div>
+            <div className="muted">Block explorer URL (optional)</div>
+            <input className="input" placeholder="https://..." value={blockExplorerUrl} onChange={(e) => setBlockExplorerUrl(e.target.value)} />
+          </div>
+        </div>
+
+        <div style={{ height: 12 }} />
+
+        <button
+          className="btn primary"
+          onClick={async () => {
+            try {
+              setErr("")
+              setOk("")
+
+              const chainId = parseChainId(chainIdRaw)
+              if (!Number.isFinite(chainId) || chainId <= 0) throw new Error("Invalid Chain ID.")
+
+              const rpc = rpcUrl.trim()
+              if (!rpc || !isValidHttpUrl(rpc)) throw new Error("RPC URL must be a valid http(s) URL.")
+
+              const explorer = blockExplorerUrl.trim()
+              if (explorer && !isValidHttpUrl(explorer)) throw new Error("Block explorer URL must be valid http(s).")
+
+              await bg({
+                type: "ADD_CUSTOM_CHAIN",
+                mode,
+                chain: {
+                  name: name.trim(),
+                  rpcUrl: rpc,
+                  chainId,
+                  nativeSymbol: nativeSymbol.trim(),
+                  blockExplorerUrl: explorer || undefined
+                }
+              })
+
+              setOk("Network added.")
+              onSaved()
+            } catch (e: any) {
+              setErr(e.message ?? "Failed to add network.")
+            }
+          }}
+        >
+          Save network
+        </button>
+
+        {ok ? <div className="ok" style={{ marginTop: 10 }}>{ok}</div> : null}
+        {err ? <div className="err" style={{ marginTop: 10 }}>{err}</div> : null}
+
+        <div style={{ height: 10 }} />
+        <div className="muted" style={{ fontSize: 12 }}>
+          Networks saved under <span className="mono">{mode}</span>. Your wallet is currently running{" "}
+          <span className="mono">{defaultMode}</span>.
+        </div>
+      </div>
     </div>
   )
 }
