@@ -251,7 +251,7 @@ async function handleLock() {
   runtime.wallet = undefined
   runtime.unlocked = false
   broadcastEventToAllTabs("accountsChanged", [])
-  return { ok: true } 
+  return { ok: true }
 }
 
 async function handleSetChain(chainId: number) {
